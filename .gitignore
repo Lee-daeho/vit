@@ -148,6 +148,7 @@ cython_debug/
 #datafiles
 *.gz
 *.bin
+/cifar-10-batches-py/
 
 #ipynb files
 *.ipynb
