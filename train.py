@@ -7,7 +7,7 @@ import os
 import random
 import numpy as np
 
-from datetime import timedelta
+from datetime import timedelta, datetime
 
 import torch
 import torch.distributed as dist
@@ -140,7 +140,7 @@ def valid(args, model, writer, test_loader, global_step):
     return accuracy
 
 
-def train(args, model, train_loader, test_loader):
+def train(args, model, train_loader, test_loader, cycle):
     """ Train the model """
     if args.local_rank in [-1, 0]:
         os.makedirs(args.output_dir, exist_ok=True)
@@ -150,6 +150,9 @@ def train(args, model, train_loader, test_loader):
 
     # Prepare dataset
     #train_loader, test_loader = get_loader(args)
+
+    # Save results
+    results = open(datetime.now().strftime("%y-%m-%d-%H-%M") + '_results_' + str(args.method_type) + '_' + args.dataset + '.txt', 'a')
 
     # Prepare optimizer and scheduler
     optimizer = torch.optim.SGD(model.parameters(),
@@ -229,7 +232,10 @@ def train(args, model, train_loader, test_loader):
                         best_acc = accuracy
                     model.train()
 
-                if global_step % t_total == 0:
+                if global_step % t_total == 0:       
+                    #save train result
+                    np.array([args.method_type, 1000*(cycle+1), best_acc]).tofile(results, sep=" ")
+                    results.write("\n")
                     break
         losses.reset()
         if global_step % t_total == 0:
@@ -369,7 +375,6 @@ def main():
         test_loader = DataLoader(data_test, 
                                     batch_size=args.eval_batch_size,
                                     pin_memory=True)
-                    
 
         # Active Learning
         for cycle in range(args.cycles):
@@ -379,8 +384,7 @@ def main():
                 random.shuffle(unlabeled_set[:SUBSET])
                 subset = unlabeled_set[:SUBSET]
             
-            print('labeled set : ',len(labeled_set))
-            train(args, model, train_loader, test_loader)
+            train(args, model, train_loader, test_loader, cycle)
 
             arg = query_samples(model, method, data_unlabeled, subset, labeled_set, cycle, args)
 
