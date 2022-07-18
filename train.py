@@ -18,8 +18,9 @@ from apex import amp
 from apex.parallel import DistributedDataParallel as DDP
 
 from models.modeling import VisionTransformer, CONFIGS
+from selection_methods import *
 from utils.scheduler import WarmupLinearSchedule, WarmupCosineSchedule
-from utils.data_utils import get_loader
+from utils.data_utils import *
 from utils.dist_util import get_world_size
 
 
@@ -62,7 +63,8 @@ def setup(args):
     num_classes = 10 if args.dataset == "cifar10" else 100
 
     model = VisionTransformer(config, args.img_size, zero_head=True, num_classes=num_classes)
-    model.load_from(np.load(args.pretrained_dir))
+    #I do not use pretrained
+    #model.load_from(np.load(args.pretrained_dir))
     model.to(args.device)
     num_params = count_parameters(model)
 
@@ -138,16 +140,16 @@ def valid(args, model, writer, test_loader, global_step):
     return accuracy
 
 
-def train(args, model):
+def train(args, model, train_loader, test_loader):
     """ Train the model """
     if args.local_rank in [-1, 0]:
         os.makedirs(args.output_dir, exist_ok=True)
         writer = SummaryWriter(log_dir=os.path.join("logs", args.name))
 
-    args.train_batch_size = args.train_batch_size // args.gradient_accumulation_steps
+    #args.train_batch_size = args.train_batch_size // args.gradient_accumulation_steps
 
     # Prepare dataset
-    train_loader, test_loader = get_loader(args)
+    #train_loader, test_loader = get_loader(args)
 
     # Prepare optimizer and scheduler
     optimizer = torch.optim.SGD(model.parameters(),
@@ -293,6 +295,20 @@ def main():
                         help="Loss scaling to improve fp16 numeric stability. Only used when fp16 set to True.\n"
                              "0 (default value): dynamic loss scaling.\n"
                              "Positive power of 2: static loss scaling value.\n")
+    parser.add_argument('-m', '--method_type', type=str, default="lloss")
+    parser.add_argument("-c", "--cycles", type=int, default=10,
+                        help="Number of active learning cycles")
+    parser.add_argument("-t", "--total", type=bool, default=False,
+                        help="Training on the entire dataset")
+    parser.add_argument("--trial", type=int, default=5,
+                        help="how many trials to repeat")
+    parser.add_argument("-l", "--lambda_loss", type=float, default=1.2,
+                    help="Adjustment graph loss parameter between the labeled and unlabeled")
+    parser.add_argument("-s", "--s_margin", type=float, default=0.1,
+                        help="Confidence margin of graph")
+    parser.add_argument("-n", "--hidden_units", type=int, default=128,
+                        help="Number of hidden units of the graph")
+
     args = parser.parse_args()
 
     # Setup CUDA, GPU & distributed training
@@ -307,22 +323,78 @@ def main():
         args.n_gpu = 1
     args.device = device
 
+    method = args.method_type
+    # Repeat for TRIAL times
+    TRIAL = 5
+    for trial in range(TRIAL):
     # Setup logging
-    logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
-                        datefmt='%m/%d/%Y %H:%M:%S',
-                        level=logging.INFO if args.local_rank in [-1, 0] else logging.WARN)
-    logger.warning("Process rank: %s, device: %s, n_gpu: %s, distributed training: %s, 16-bits training: %s" %
-                   (args.local_rank, args.device, args.n_gpu, bool(args.local_rank != -1), args.fp16))
+        logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+                            datefmt='%m/%d/%Y %H:%M:%S',
+                            level=logging.INFO if args.local_rank in [-1, 0] else logging.WARN)
+        logger.warning("Process rank: %s, device: %s, n_gpu: %s, distributed training: %s, 16-bits training: %s" %
+                    (args.local_rank, args.device, args.n_gpu, bool(args.local_rank != -1), args.fp16))
 
-    # Set seed
-    set_seed(args)
+        # Set seed
+        set_seed(args)
 
-    # Model & Tokenizer Setup
-    args, model = setup(args)
+        # Model & Tokenizer Setup
+        args, model = setup(args)
 
-    # Training
-    train(args, model)
+        #Loading training and testing dataset
+        data_train, data_unlabeled, data_test, adden, NO_CLASSES, no_train = load_dataset(args.dataset, args)
+        ADDEDNUM = adden
+        NUM_TRAIN = no_train
+        SUBSET = 10000
 
+        #adjusting train_batch_size
+        args.train_batch_size = args.train_batch_size // args.gradient_accumulation_steps
+
+        #make initial dataset
+        indices = list(range(NUM_TRAIN))
+
+        random.shuffle(indices)
+
+        if args.total:
+            labeled_set = indices
+        else:
+            labeled_set = indices[:ADDEDNUM]
+            unlabeled_set = [x for x in indices if x not in labeled_set]
+        
+        train_loader = DataLoader(data_train,
+                                    batch_size = args.train_batch_size,
+                                    sampler=SubsetRandomSampler(labeled_set),
+                                    pin_memory=True, 
+                                    drop_last=True)
+        
+        test_loader = DataLoader(data_test, 
+                                    batch_size=args.eval_batch_size,
+                                    pin_memory=True)
+                    
+
+        # Active Learning
+        for cycle in range(args.cycles):
+
+            # Randomly Sample 10000 unlabaled data points
+            if not args.total:
+                random.shuffle(unlabeled_set[:SUBSET])
+                subset = unlabeled_set[:SUBSET]
+            
+            print('labeled set : ',len(labeled_set))
+            train(args, model, train_loader, test_loader)
+
+            arg = query_samples(model, method, data_unlabeled, subset, labeled_set, cycle, args)
+
+            labeled_set += list(torch.tensor(subset)[arg][-ADDEDNUM:].numpy())
+            listd = list(torch.tensor(subset)[arg][:-ADDENDUM].numpy())
+            unlabeled_set = listd + unlabeled_set[SUBSET:]
+            print(len(labeled_set), min(labeled_set), max(labeled_set))
+            # Create a new dataloader for the updated labeled dataset
+            train_loader = DataLoader(data_train, batch_size=args.train_batch_size,
+                                                sampler=SubsetRandomSampler(labeled_set),
+                                                pin_memory=True,
+                                                drop_last=True)
+            
+                                
 
 if __name__ == "__main__":
     main()

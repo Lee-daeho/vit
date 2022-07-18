@@ -268,17 +268,19 @@ class VisionTransformer(nn.Module):
 
         self.transformer = Transformer(config, img_size, vis)
         self.head = Linear(config.hidden_size, num_classes)
+        print('hidden size : ',config.hidden_size)
 
-    def forward(self, x, labels=None):
-        x, attn_weights = self.transformer(x)
-        logits = self.head(x[:, 0])
+    def forward(self, x, labels=None):        
+        x, attn_weights = self.transformer(x)   #x is encoded after norm
+        print('x ssshape : ',x.shape)
+        logits = self.head(x[:, 0]) #use only CLS patch
 
         if labels is not None:
             loss_fct = CrossEntropyLoss()
             loss = loss_fct(logits.view(-1, self.num_classes), labels.view(-1))
             return loss
         else:
-            return logits, attn_weights
+            return logits, attn_weights, x
 
     def load_from(self, weights):
         with torch.no_grad():

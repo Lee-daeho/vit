@@ -144,3 +144,10 @@ cython_debug/
 !/logs/
 !/output/
 .idea
+
+#datafiles
+*.gz
+*.bin
+
+#ipynb files
+*.ipynb
