@@ -332,7 +332,7 @@ def main():
 
     method = args.method_type
     time = datetime.now().strftime("%y-%m-%d-%H-%M")
-    label_dist = open(os.path.join("logs", args.name) + '/' + time + '_' + str(args.method_type) + '_labels.txt', a)
+    label_dist = open(os.path.join("logs", args.name) + '/' + time + '_' + str(args.method_type) + '_labels.txt', 'a')
     # Repeat for TRIAL times
     TRIAL = 5
     for trial in range(TRIAL):
