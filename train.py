@@ -8,6 +8,7 @@ import random
 import numpy as np
 
 from datetime import timedelta, datetime
+from collections import Counter
 
 import torch
 import torch.distributed as dist
@@ -140,10 +141,10 @@ def valid(args, model, writer, test_loader, global_step):
     return accuracy
 
 
-def train(args, model, train_loader, test_loader, cycle):
+def train(args, model, train_loader, test_loader, cycle, time):
     """ Train the model """
     if args.local_rank in [-1, 0]:
-        os.makedirs(args.output_dir, exist_ok=True)
+        os.makedirs(args.output_dir, exist_ok=True)        
         writer = SummaryWriter(log_dir=os.path.join("logs", args.name))
 
     #args.train_batch_size = args.train_batch_size // args.gradient_accumulation_steps
@@ -152,7 +153,7 @@ def train(args, model, train_loader, test_loader, cycle):
     #train_loader, test_loader = get_loader(args)
 
     # Save results
-    results = open(datetime.now().strftime("%y-%m-%d-%H-%M") + '_results_' + str(args.method_type) + '_' + args.dataset + '.txt', 'a')
+    results = open(os.path.join("logs", args.name) + '/' + time + '_results_' + str(args.method_type) + '_' + args.dataset + '.txt', 'a')
 
     # Prepare optimizer and scheduler
     optimizer = torch.optim.SGD(model.parameters(),
@@ -330,6 +331,8 @@ def main():
     args.device = device
 
     method = args.method_type
+    time = datetime.now().strftime("%y-%m-%d-%H-%M")
+    label_dist = open(os.path.join("logs", args.name) + '/' + time + '_' + str(args.method_type) + '_labels.txt', a)
     # Repeat for TRIAL times
     TRIAL = 5
     for trial in range(TRIAL):
@@ -370,7 +373,7 @@ def main():
                                     batch_size = args.train_batch_size,
                                     sampler=SubsetRandomSampler(labeled_set),
                                     pin_memory=True, 
-                                    drop_last=True)
+                                    drop_last=False)
         
         test_loader = DataLoader(data_test, 
                                     batch_size=args.eval_batch_size,
@@ -384,7 +387,14 @@ def main():
                 random.shuffle(unlabeled_set[:SUBSET])
                 subset = unlabeled_set[:SUBSET]
             
-            train(args, model, train_loader, test_loader, cycle)
+            #to save the amount of data per labels
+            c = Counter()
+            for idx, (_, y) in enumerate(train_loader):
+                c.update(y.numpy())
+
+            
+            np.array([args.method_type, 1000*(cycle+1), str(c)[7:]]).tofile(label_dist, sep=" ")
+            train(args, model, train_loader, test_loader, cycle, time)
 
             arg = query_samples(model, method, data_unlabeled, subset, labeled_set, cycle, args)
 
@@ -396,7 +406,7 @@ def main():
             train_loader = DataLoader(data_train, batch_size=args.train_batch_size,
                                                 sampler=SubsetRandomSampler(labeled_set),
                                                 pin_memory=True,
-                                                drop_last=True)
+                                                drop_last=False)
             
                                 
 

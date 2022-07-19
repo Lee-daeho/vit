@@ -151,6 +151,7 @@ cython_debug/
 /cifar-10-batches-py/
 data/cifar-10-batches-py/
 /data/cifar-10-batches-py/
+logs/
 
 #ipynb files
 *.ipynb

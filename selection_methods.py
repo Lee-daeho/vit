@@ -78,75 +78,76 @@ def train_vaal(models, optimizers, labeled_dataloader, unlabeled_dataloader, cyc
             labels = labels.cuda()
 
         # VAE step
-        for count in range(num_vae_steps): # num_vae_steps
-            recon, _, mu, logvar = vae(labeled_imgs)
-            unsup_loss = vae_loss(labeled_imgs, recon, mu, logvar, beta)
-            unlab_recon, _, unlab_mu, unlab_logvar = vae(unlabeled_imgs)
-            transductive_loss = vae_loss(unlabeled_imgs, 
-                    unlab_recon, unlab_mu, unlab_logvar, beta)
-        
-            labeled_preds = discriminator(mu)
-            unlabeled_preds = discriminator(unlab_mu)
-            
-            lab_real_preds = torch.ones(labeled_imgs.size(0))
-            unlab_real_preds = torch.ones(unlabeled_imgs.size(0))
+        with torch.autograd.detect_anomaly():
+            for count in range(num_vae_steps): # num_vae_steps
+                recon, _, mu, logvar = vae(labeled_imgs)
+                unsup_loss = vae_loss(labeled_imgs, recon, mu, logvar, beta)
+                unlab_recon, _, unlab_mu, unlab_logvar = vae(unlabeled_imgs)
+                transductive_loss = vae_loss(unlabeled_imgs, 
+                        unlab_recon, unlab_mu, unlab_logvar, beta)
+
+                labeled_preds = discriminator(mu)
+                unlabeled_preds = discriminator(unlab_mu)
                 
-            with torch.cuda.device(CUDA_VISIBLE_DEVICES):
-                lab_real_preds = lab_real_preds.cuda()
-                unlab_real_preds = unlab_real_preds.cuda()
+                lab_real_preds = torch.ones(labeled_imgs.size(0))
+                unlab_real_preds = torch.ones(unlabeled_imgs.size(0))
+                    
+                with torch.cuda.device(CUDA_VISIBLE_DEVICES):
+                    lab_real_preds = lab_real_preds.cuda()
+                    unlab_real_preds = unlab_real_preds.cuda()
+                
+                dsc_loss = bce_loss(labeled_preds[:,0], lab_real_preds) + \
+                        bce_loss(unlabeled_preds[:,0], unlab_real_preds)
+                total_vae_loss = unsup_loss + transductive_loss + adversary_param * dsc_loss
+                
+                optimizers['vae'].zero_grad()
+                total_vae_loss.backward()
+                optimizers['vae'].step()
 
-            dsc_loss = bce_loss(labeled_preds[:,0], lab_real_preds) + \
-                       bce_loss(unlabeled_preds[:,0], unlab_real_preds)
-            total_vae_loss = unsup_loss + transductive_loss + adversary_param * dsc_loss
-            
-            optimizers['vae'].zero_grad()
-            total_vae_loss.backward()
-            optimizers['vae'].step()
+                # sample new batch if needed to train the adversarial network
+                if count < (num_vae_steps - 1):
+                    labeled_imgs, _ = next(labeled_data)
+                    unlabeled_imgs = next(unlabeled_data)[0]
 
-            # sample new batch if needed to train the adversarial network
-            if count < (num_vae_steps - 1):
-                labeled_imgs, _ = next(labeled_data)
-                unlabeled_imgs = next(unlabeled_data)[0]
+                    with torch.cuda.device(CUDA_VISIBLE_DEVICES):
+                        labeled_imgs = labeled_imgs.cuda()
+                        unlabeled_imgs = unlabeled_imgs.cuda()
+                        labels = labels.cuda()
+
+            # Discriminator step
+            for count in range(num_adv_steps):
+                with torch.no_grad():
+                    _, _, mu, _ = vae(labeled_imgs)
+                    _, _, unlab_mu, _ = vae(unlabeled_imgs)
+                
+                labeled_preds = discriminator(mu)
+                unlabeled_preds = discriminator(unlab_mu)
+                
+                lab_real_preds = torch.ones(labeled_imgs.size(0))
+                unlab_fake_preds = torch.zeros(unlabeled_imgs.size(0))
 
                 with torch.cuda.device(CUDA_VISIBLE_DEVICES):
-                    labeled_imgs = labeled_imgs.cuda()
-                    unlabeled_imgs = unlabeled_imgs.cuda()
-                    labels = labels.cuda()
+                    lab_real_preds = lab_real_preds.cuda()
+                    unlab_fake_preds = unlab_fake_preds.cuda()
+                
+                dsc_loss = bce_loss(labeled_preds[:,0], lab_real_preds) + \
+                        bce_loss(unlabeled_preds[:,0], unlab_fake_preds)
 
-        # Discriminator step
-        for count in range(num_adv_steps):
-            with torch.no_grad():
-                _, _, mu, _ = vae(labeled_imgs)
-                _, _, unlab_mu, _ = vae(unlabeled_imgs)
-            
-            labeled_preds = discriminator(mu)
-            unlabeled_preds = discriminator(unlab_mu)
-            
-            lab_real_preds = torch.ones(labeled_imgs.size(0))
-            unlab_fake_preds = torch.zeros(unlabeled_imgs.size(0))
+                optimizers['discriminator'].zero_grad()
+                dsc_loss.backward()
+                optimizers['discriminator'].step()
 
-            with torch.cuda.device(CUDA_VISIBLE_DEVICES):
-                lab_real_preds = lab_real_preds.cuda()
-                unlab_fake_preds = unlab_fake_preds.cuda()
-            
-            dsc_loss = bce_loss(labeled_preds[:,0], lab_real_preds) + \
-                       bce_loss(unlabeled_preds[:,0], unlab_fake_preds)
+                # sample new batch if needed to train the adversarial network
+                if count < (num_adv_steps-1):
+                    labeled_imgs, _ = next(labeled_data)
+                    unlabeled_imgs = next(unlabeled_data)[0]
 
-            optimizers['discriminator'].zero_grad()
-            dsc_loss.backward()
-            optimizers['discriminator'].step()
-
-            # sample new batch if needed to train the adversarial network
-            if count < (num_adv_steps-1):
-                labeled_imgs, _ = next(labeled_data)
-                unlabeled_imgs = next(unlabeled_data)[0]
-
-                with torch.cuda.device(CUDA_VISIBLE_DEVICES):
-                    labeled_imgs = labeled_imgs.cuda()
-                    unlabeled_imgs = unlabeled_imgs.cuda()
-                    labels = labels.cuda()
-            if iter_count % 100 == 0:
-                print("Iteration: " + str(iter_count) + "  vae_loss: " + str(total_vae_loss.item()) + " dsc_loss: " +str(dsc_loss.item()))
+                    with torch.cuda.device(CUDA_VISIBLE_DEVICES):
+                        labeled_imgs = labeled_imgs.cuda()
+                        unlabeled_imgs = unlabeled_imgs.cuda()
+                        labels = labels.cuda()
+                if iter_count % 100 == 0:
+                    print("Iteration: " + str(iter_count) + "  vae_loss: " + str(total_vae_loss.item()) + " dsc_loss: " +str(dsc_loss.item()))
                 
 def get_uncertainty(models, unlabeled_loader):
     models['backbone'].eval()
@@ -304,8 +305,8 @@ def query_samples(model, method, data_unlabeled, subset, labeled_set, cycle, arg
             discriminator = Discriminator(32)
         models      = {'vae': vae, 'discriminator': discriminator}
         
-        optim_vae = optim.Adam(vae.parameters(), lr=5e-4)
-        optim_discriminator = optim.Adam(discriminator.parameters(), lr=5e-4)
+        optim_vae = optim.Adam(vae.parameters(), lr=5e-5)
+        optim_discriminator = optim.Adam(discriminator.parameters(), lr=5e-5)
         optimizers = {'vae': optim_vae, 'discriminator':optim_discriminator}
 
         train_vaal(models,optimizers, labeled_loader, unlabeled_loader, cycle+1)

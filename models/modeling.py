@@ -271,8 +271,7 @@ class VisionTransformer(nn.Module):
         print('hidden size : ',config.hidden_size)
 
     def forward(self, x, labels=None):        
-        x, attn_weights = self.transformer(x)   #x is encoded after norm
-        print('x ssshape : ',x.shape)
+        x, attn_weights = self.transformer(x)   #x is encoded after norm        
         logits = self.head(x[:, 0]) #use only CLS patch
 
         if labels is not None:

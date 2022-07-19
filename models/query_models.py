@@ -117,16 +117,16 @@ class VAE(nn.Module):
         self.nc = nc
         self.f_filt = f_filt
         self.encoder = nn.Sequential(
-            nn.Conv2d(nc, 128, 4, 2, 1, bias=False),  # B,  128, 224, 224
+            nn.Conv2d(nc, 128, 4, 2, 1, bias=False),  # B,  128, 32, 32
             nn.BatchNorm2d(128),
             nn.ReLU(True),
-            nn.Conv2d(128, 256, 4, 2, 1, bias=False),  # B,  256, 112, 112
+            nn.Conv2d(128, 256, 4, 2, 1, bias=False),  # B,  256, 16, 16
             nn.BatchNorm2d(256),
             nn.ReLU(True),
-            nn.Conv2d(256, 512, 4, 2, 1, bias=False),  # B,  512,  56,  56
+            nn.Conv2d(256, 512, 4, 2, 1, bias=False),  # B,  512,  8,  8
             nn.BatchNorm2d(512),
             nn.ReLU(True),
-            nn.Conv2d(512, 1024, self.f_filt, 2, 1, bias=False),  # B, 1024,  28,  28
+            nn.Conv2d(512, 1024, self.f_filt, 2, 1, bias=False),  # B, 1024,  4,  4
             nn.BatchNorm2d(1024),
             nn.ReLU(True),
             View((-1, 1024 * 14 * 14)),  # B, 1024*4*4
@@ -204,11 +204,11 @@ class CVAE(nn.Module):  # My Module
             nn.Conv2d(512, 1024, self.f_filt, 2, 1, bias=False),  # B, 1024,  4,  4
             nn.BatchNorm2d(1024),
             nn.ReLU(True),
-            View((-1, 1024 * 2 * 2)),  # B, 1024*4*4
+            View((-1, 1024 * 14 * 14)),  # B, 1024*4*4
         )
 
         self.classifier = nn.Sequential(
-            nn.Linear(1024 * 2 * 2, 1024),
+            nn.Linear(1024 * 14 * 14, 1024),
             nn.ReLU(True),
             nn.Linear(1024, 256),
             nn.ReLU(True),
@@ -217,7 +217,7 @@ class CVAE(nn.Module):  # My Module
             nn.Linear(64, self.n_class)
         )
         self.label_emb = nn.Embedding(self.n_class, self.n_class)
-        self.fc_mu = nn.Linear(1024 * 2 * 2, z_dim)  # B, z_dim
+        self.fc_mu = nn.Linear(1024 * 14 * 2, z_dim)  # B, z_dim
         self.fc_logvar = nn.Linear(1024 * 2 * 2, z_dim)  # B, z_dim
         self.decoder = nn.Sequential(
             nn.Linear(z_dim + self.n_class, 1024 * 4 * 4),  # B, 1024*8*8
