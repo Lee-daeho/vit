@@ -100,7 +100,8 @@ def train_vaal(models, optimizers, labeled_dataloader, unlabeled_dataloader, cyc
             total_vae_loss = unsup_loss + transductive_loss + adversary_param * dsc_loss
             
             optimizers['vae'].zero_grad()
-            total_vae_loss.backward()
+            total_vae_loss.backward()            
+            torch.nn.utils.clip_grad_norm_(vae.parameters(), 5)
             optimizers['vae'].step()
 
             # sample new batch if needed to train the adversarial network
@@ -134,6 +135,7 @@ def train_vaal(models, optimizers, labeled_dataloader, unlabeled_dataloader, cyc
 
             optimizers['discriminator'].zero_grad()
             dsc_loss.backward()
+            torch.nn.utils.clip_grad_norm_(discriminator.parameters(), 5)
             optimizers['discriminator'].step()
 
             # sample new batch if needed to train the adversarial network

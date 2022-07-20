@@ -186,7 +186,7 @@ def train(args, model, train_loader, test_loader, cycle, time):
     logger.info("  Gradient Accumulation steps = %d", args.gradient_accumulation_steps)
 
     model.zero_grad()
-    set_seed(args)  # Added here for reproducibility (even between python 2 and 3)
+    #set_seed(args)  # Added here for reproducibility (even between python 2 and 3)
     losses = AverageMeter()
     global_step, best_acc = 0, 0
     while True:
@@ -343,8 +343,8 @@ def main():
         logger.warning("Process rank: %s, device: %s, n_gpu: %s, distributed training: %s, 16-bits training: %s" %
                     (args.local_rank, args.device, args.n_gpu, bool(args.local_rank != -1), args.fp16))
 
-        # Set seed
-        set_seed(args)
+        # Set seed when reproduce
+        #set_seed(args)
 
         # Model & Tokenizer Setup
         args, model = setup(args)
@@ -394,6 +394,7 @@ def main():
 
             
             np.array([args.method_type, 1000*(cycle+1), str(c)[7:]]).tofile(label_dist, sep=" ")
+            label_dist.write('\n')
             train(args, model, train_loader, test_loader, cycle, time)
 
             arg = query_samples(model, method, data_unlabeled, subset, labeled_set, cycle, args)
